@@ -15,6 +15,9 @@
 #define VIVE_HMD                 0x2c87
 #define VIVE_PRO_HMD             0x0309
 
+#define ST_ID                    0x0483
+#define ST_DEV_ID                0x0101
+
 #define VALVE_ID                 0x28de
 #define VIVE_WATCHMAN_DONGLE     0x2101
 #define VIVE_LIGHTHOUSE_FPGA_RX  0x2000
@@ -34,7 +37,8 @@
 
 typedef enum {
 	REV_VIVE,
-	REV_VIVE_PRO
+	REV_VIVE_PRO,
+	REV_PIMAX_5K
 } vive_revision;
 
 typedef struct {
@@ -160,6 +164,7 @@ static void update_device(ohmd_device* device)
 						priv->raw_gyro.z *= -1;
 						break;
 					case REV_VIVE_PRO:
+					case REV_PIMAX_5K:
 						priv->raw_accel.x *= -1;
 						priv->raw_accel.z *= -1;
 						priv->raw_gyro.x *= -1;
@@ -237,6 +242,7 @@ static void close_device(ohmd_device* device)
 			LOGI("power off magic 2: %d\n", hret);
 			break;
 		case REV_VIVE_PRO:
+		case REV_PIMAX_5K:
 			hret = hid_send_feature_report(priv->hmd_handle,
 			                               vive_pro_magic_power_off,
 			                               sizeof(vive_pro_magic_power_off));
@@ -410,6 +416,13 @@ int vive_get_range_packet(vive_priv* priv)
   return 0;
 }
 
+static bool is_pimax(struct hid_device_info* dev) {
+	static const wchar_t vendor [] = L"Pimax VR, Inc.";
+	static const wchar_t product[] = L"Pimax P2C";
+	return wcscmp(vendor, dev->manufacturer_string)==0
+		&& wcscmp(product, dev->product_string)==0;
+}
+
 static ohmd_device* open_device(ohmd_driver* driver, ohmd_device_desc* desc)
 {
 	vive_priv* priv = ohmd_alloc(driver->ctx, sizeof(vive_priv));
@@ -433,6 +446,10 @@ static ohmd_device* open_device(ohmd_driver* driver, ohmd_device_desc* desc)
 		case REV_VIVE_PRO:
 			priv->hmd_handle = open_device_idx(HTC_ID, VIVE_PRO_HMD, 0, 1, idx);
 			break;
+		case REV_PIMAX_5K:
+			// TODO: Only Pimax device!
+			priv->hmd_handle = open_device_idx(ST_ID, ST_DEV_ID, 0, 1, idx);
+			break;
 		default:
 			LOGE("Unknown VIVE revision.\n");
 	}
@@ -451,6 +468,7 @@ static ohmd_device* open_device(ohmd_driver* driver, ohmd_device_desc* desc)
 			                                   VIVE_LIGHTHOUSE_FPGA_RX, 0, 2, idx);
 			break;
 		case REV_VIVE_PRO:
+		case REV_PIMAX_5K:
 			priv->imu_handle = open_device_idx(VALVE_ID, VIVE_LHR, 0, 1, idx);
 			break;
 		default:
@@ -478,6 +496,7 @@ static ohmd_device* open_device(ohmd_driver* driver, ohmd_device_desc* desc)
 			LOGI("power on magic: %d\n", hret);
 			break;
 		case REV_VIVE_PRO:
+		case REV_PIMAX_5K:
 			// turn the display on
 			hret = hid_send_feature_report(priv->hmd_handle,
 			                               vive_pro_magic_power_on,
@@ -583,6 +602,20 @@ static void get_device_list(ohmd_driver* driver, ohmd_device_list* list)
 		devs = hid_enumerate(HTC_ID, VIVE_PRO_HMD);
 		if (devs != NULL)
 			rev = REV_VIVE_PRO;
+		else {
+			devs = hid_enumerate(ST_ID, ST_DEV_ID);
+			if (devs != NULL) {
+				struct hid_device_info* dev = devs;
+				dev = devs;
+				while (dev) {
+					if (is_pimax(dev)) {
+						rev = REV_PIMAX_5K;
+						break;
+					}
+					dev = dev->next;
+				}
+			}
+		}
 	}
 
 	struct hid_device_info* cur_dev = devs;
